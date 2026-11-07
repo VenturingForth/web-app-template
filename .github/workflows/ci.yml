@@ -168,6 +168,21 @@ jobs:
         with:
           global-json-file: server/global.json
       - run: dotnet restore --locked-mode
+      # --locked-mode passes when a lock file is missing, so check each project has one in git.
+      - name: Check lock files are committed
+        shell: bash
+        run: |
+          missing=0
+          for proj in $(git ls-files '*.csproj'); do
+            lock="$(dirname "$proj")/packages.lock.json"
+            if ! git ls-files --error-unmatch "${lock#server/}" > /dev/null 2>&1; then
+              echo "::error file=server/$proj::Missing committed lock file: $lock"
+              echo "----- generated $lock -----"
+              cat "$lock"
+              missing=1
+            fi
+          done
+          exit $missing
       - run: dotnet build --no-restore -c Release
       - run: dotnet test --no-build -c Release
 
