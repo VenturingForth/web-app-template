@@ -1,0 +1,231 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly audit: new advisories appear without code changes.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      client: ${{ steps.filter.outputs.client }}
+      server: ${{ steps.filter.outputs.server }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: Find changed areas
+        shell: bash
+        run: |
+          # Scheduled and manual runs check everything.
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "client=true" >> "$GITHUB_OUTPUT"
+            echo "server=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="${{ github.event.before }}"
+            # First push to a branch has no previous commit.
+            if [[ "$base" =~ ^0+$ ]] || ! git cat-file -e "$base" 2>/dev/null; then
+              base="HEAD~1"
+            fi
+          fi
+          files=$(git diff --name-only "$base"...HEAD)
+          echo "$files"
+          # Changes to CI config re-run everything.
+          ci=$(grep -qE '^\.github/' <<< "$files" && echo true || echo false)
+          client=$(grep -qE '^client/' <<< "$files" && echo true || echo "$ci")
+          server=$(grep -qE '^server/' <<< "$files" && echo true || echo "$ci")
+          echo "client=$client" >> "$GITHUB_OUTPUT"
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+
+  client-audit:
+    name: 'client: audit'
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm audit signatures
+      - run: npm audit --audit-level=low
+
+  client-lint:
+    name: 'client: lint'
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+
+  client-build:
+    name: 'client: build'
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  client-test:
+    name: 'client: test'
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  server-audit:
+    name: 'server: audit'
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: server/global.json
+      # NuGet audit runs during restore. TreatWarningsAsErrors fails it on any advisory.
+      - run: dotnet restore --locked-mode
+      - name: List vulnerable packages
+        shell: bash
+        run: |
+          dotnet list package --vulnerable --include-transitive | tee audit.txt
+          ! grep -q 'has the following vulnerable packages' audit.txt
+
+  server-test:
+    name: 'server: test'
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: server/global.json
+      - run: dotnet restore --locked-mode
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release
+
+  e2e:
+    name: e2e
+    needs: [changes, client-test, server-test]
+    # Run when either area changed and no test job failed (skipped is fine).
+    if: >-
+      always() &&
+      (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true') &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: server/global.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Start server
+        working-directory: server
+        shell: bash
+        run: |
+          dotnet restore --locked-mode
+          dotnet build --no-restore -c Release
+          nohup dotnet run --no-build -c Release --project src/WebApp.Api \
+            --no-launch-profile --urls http://localhost:5000 > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:5000/api/health && exit 0
+            sleep 2
+          done
+          cat server.log
+          exit 1
+
+      - name: Install client
+        working-directory: client
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Build client
+        working-directory: client
+        run: npm run build
+      - name: Run Playwright
+        working-directory: client
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: client/playwright-report
+          retention-days: 14
+      - name: Show server log
+        if: failure()
+        run: cat server/server.log
