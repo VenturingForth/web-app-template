@@ -1,0 +1,6 @@
+# OS and editor files. Stack-specific ignores live in client/ and server/.
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/*
+!.vscode/extensions.json

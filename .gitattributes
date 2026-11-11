@@ -1,0 +1,16 @@
+# Normalise line endings in the repo. Git checks out native endings per machine.
+* text=auto
+
+# Scripts that must keep LF on every machine.
+*.sh text eol=lf
+
+# Windows-only files that must keep CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
