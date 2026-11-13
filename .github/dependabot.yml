@@ -25,6 +25,10 @@ updates:
     groups:
       nuget-minor-and-patch:
         update-types: [minor, patch]
+      # Ungrouped updates get one PR per project. This group puts
+      # all major bumps in one PR that covers every project.
+      nuget-major:
+        update-types: [major]
 
   - package-ecosystem: github-actions
     directory: /
