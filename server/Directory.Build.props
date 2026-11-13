@@ -3,6 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- App version. Keep in step with client/package.json. The release skill bumps both. -->
+    <Version>0.0.0</Version>
+
     <LangVersion>latest</LangVersion>
     <AnalysisLevel>latest</AnalysisLevel>
 
