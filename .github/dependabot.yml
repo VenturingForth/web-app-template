@@ -3,7 +3,7 @@ updates:
   - package-ecosystem: npm
     directory: /client
     schedule:
-      interval: weekly
+      interval: monthly
     cooldown:
       default-days: 7
     labels: [chore]
@@ -21,7 +21,7 @@ updates:
   - package-ecosystem: nuget
     directory: /server
     schedule:
-      interval: weekly
+      interval: monthly
     cooldown:
       default-days: 7
     labels: [chore]
@@ -38,7 +38,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     cooldown:
       default-days: 7
     labels: [chore]
