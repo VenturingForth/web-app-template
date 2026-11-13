@@ -7,3 +7,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en-GB/1.1.0/). 
 
 ### Added
 - Initial scaffold: .NET 10 Web API in `server/`, React + TypeScript client in `client/`, CI, Dependabot, issue and PR templates.
+- Dependabot minor and patch updates merge automatically after CI passes.

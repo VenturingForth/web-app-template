@@ -28,6 +28,10 @@ updates:
     commit-message:
       prefix: chore
     groups:
+      # Groups match in order. xunit packages get their own PR, so an xunit
+      # major bump does not share a PR with unrelated majors.
+      xunit:
+        patterns: ["xunit*"]
       nuget-minor-and-patch:
         update-types: [minor, patch]
       # Ungrouped updates get one PR per project. This group puts
